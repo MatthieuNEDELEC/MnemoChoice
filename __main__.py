@@ -28,7 +28,7 @@ def kill_existing_instance():
 
 # Initialisation des variables depuis le fichier de configuration
 def init():
-    global filePath, fileTab, fileCol1, fileCol2
+    global filePath, fileTab, fileCol1, fileCol2, shortcut
     config = configparser.ConfigParser()
     config.read('config.ini')
 
@@ -36,6 +36,7 @@ def init():
     fileTab = config['FILE']['TAB']
     fileCol1 = config['FILE']['COLUMN1']
     fileCol2 = config['FILE']['COLUMN2']
+    shortcut = config['KEYBOARD']['SHORTCUT']
 
 # Vérification et copie du fichier si nécessaire
 def check_and_copy_file():
@@ -52,15 +53,29 @@ def check_and_copy_file():
 
 # Charger les données depuis le fichier Excel avec les paramètres du fichier de config
 def load_data(filepath):
-    try:
-        data = pd.read_excel(filepath, sheet_name=fileTab)
-        if fileCol1 not in data.columns or fileCol2 not in data.columns:
-            messagebox.showerror("Erreur", "Colonnes spécifiées non trouvées dans l'onglet.")
-            raise ValueError("Colonnes spécifiées non trouvées dans l'onglet.")
-        return data[[fileCol1, fileCol2]]
-    except Exception as e:
-        messagebox.showerror("Erreur de chargement", f"Erreur lors du chargement des données : {e}")
-        raise
+    # Load the entire sheet without assuming header location
+    df = pd.read_excel(filepath, sheet_name=fileTab, header=None)
+
+    # Find the row with the specified headers
+    header_row = None
+    for i, row in df.iterrows():
+        if fileCol1 in row.values and fileCol2 in row.values:
+            header_row = i
+            break
+
+    # If header row not found, raise an error
+    if header_row is None:
+        raise ValueError(f"Columns '{fileCol1}' and '{fileCol2}' not found in the file.")
+
+    # Load data starting from the row below the headers
+    df = pd.read_excel(filepath, sheet_name=fileTab, header=header_row)
+
+    # Filter to keep only relevant columns
+    if fileCol1 not in df.columns or fileCol2 not in df.columns:
+        raise ValueError(f"Columns '{fileCol1}' and '{fileCol2}' not found in data.")
+    
+    return df[[fileCol1, fileCol2]]
+
 
 # Fonction pour afficher la fenêtre de saisie et filtrer les propositions
 def open_window(data):
@@ -121,11 +136,11 @@ def on_trigger():
         data = load_data(filepath)
         open_window(data)
     except Exception as e:
-        print(f"Erreur lors de l'activation : {e}")
+        messagebox.showerror("Erreur lors de l'activation", e)
 
 # Démarrer le script en tuant l'instance existante, puis lancer les étapes principales
 if __name__ == "__main__":
     kill_existing_instance()
     init()
-    keyboard.add_hotkey('ctrl+alt+f', on_trigger)
+    keyboard.add_hotkey(shortcut, on_trigger)
     keyboard.wait()
