@@ -1,4 +1,5 @@
 import pandas as pd
+import openpyxl
 import tkinter as tk
 from tkinter import Listbox, messagebox
 import keyboard
@@ -12,18 +13,20 @@ import sys
 # Fonction pour vérifier et tuer l'instance existante
 def kill_existing_instance():
     current_process = psutil.Process()
-    exe_name = "raccourcis.exe"  # Replace with the exact name of your executable
+    target_name = "MnemoChoice"  # Substring to search in process names
 
-    for process in psutil.process_iter(['pid', 'name']):
-        # Check if the process matches our executable name and is not the current process
-        if process.info['name'] == exe_name and process.info['pid'] != current_process.pid:
-            try:
-                process.terminate()
-                process.wait(timeout=3)  # Optionally wait up to 3 seconds for termination
-            except psutil.NoSuchProcess:
-                pass  # Ignore if the process has already exited
-            except psutil.AccessDenied:
-                print(f"Access denied when trying to terminate process {process.info['pid']}")
+    for process in psutil.process_iter(['pid', 'name', 'cmdline']):
+        if process.info['pid'] != current_process.pid:
+            process_name = process.info['name'] or ""
+            # Check if the target name appears in the process name
+            if target_name in process_name:
+                try:
+                    process.terminate()
+                    process.wait(timeout=3)  # Wait for termination, with a 3-second timeout
+                except psutil.NoSuchProcess:
+                    pass  # Ignore if the process has already exited
+                except psutil.AccessDenied:
+                    print(f"Access denied when trying to terminate process {process.info['pid']}")
 
 
 # Initialisation des variables depuis le fichier de configuration
@@ -40,7 +43,7 @@ def init():
 
 # Vérification et copie du fichier si nécessaire
 def check_and_copy_file():
-    local_filename = './raccourcis.xlsx'
+    local_filename = './mnemo.xlsx'
     
     if os.path.exists(filePath):
         if not os.path.exists(local_filename) or os.path.getmtime(filePath) > os.path.getmtime(local_filename):

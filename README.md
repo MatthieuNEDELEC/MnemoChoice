@@ -7,7 +7,7 @@ MnémoChoice is a Python tool that streamlines word selection by providing quick
 Use the package manager [pip](https://pip.pypa.io/en/stable/) to install the packages.
 
 ```bash
-pip install pandas tkinter psutil keyboard configparser
+pip install pandas tk psutil keyboard configparser pyperclip openpyxl
 ```
 
 ## Usage
@@ -24,7 +24,7 @@ COLUMN2 = column name for words shortcut
 SHORTCUT = shortcut to use to launch the utility
 ```
 
-Laucnh the executable (currently only Windows is supported due to killing process concerns)
+Launch the executable (currently only Windows is supported due to killing process concerns)
 
 ## Contributing
 
