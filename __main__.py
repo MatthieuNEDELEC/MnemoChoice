@@ -31,7 +31,7 @@ def kill_existing_instance():
 
 # Initialisation des variables depuis le fichier de configuration
 def init():
-    global config, filePath, fileTab, fileCol1, fileCol2, shortcut, autokill
+    global config, filePath, fileTab, fileCol1, fileCol2, shortcut, autokill, opacity
     config = configparser.ConfigParser()
     config.read('config.ini')
 
@@ -41,6 +41,7 @@ def init():
     fileCol2 = config['FILE']['COLUMN2']
     shortcut = config['KEYBOARD']['SHORTCUT']
     autokill = config['PROCESS']['AUTOKILL']
+    opacity = config['UI']['OPACITY']
 
 # Vérification et copie du fichier si nécessaire
 def check_and_copy_file():
@@ -124,6 +125,7 @@ def open_window(data):
             config.write(configfile)
 
     window = tk.Tk()
+    window.attributes('-alpha', float(opacity))
     window.title("Recherche de mot")
     window.geometry("400x300")
     window.lift()

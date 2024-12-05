@@ -25,6 +25,9 @@ SHORTCUT = shortcut to use to launch the utility
 
 [PROCESS]
 autokill = 0 to keep window open after selection or 1 to close automatically
+
+[UI]
+opacity = 0 to 1 → 0 the most transparent and 1 the more opaque 
 ```
 
 Launch the executable (currently only Windows is supported due to killing process concerns)
