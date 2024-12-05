@@ -1,5 +1,6 @@
 import pandas as pd
 import openpyxl
+import unicodedata
 import tkinter as tk
 from tkinter import Listbox, messagebox
 import keyboard
@@ -8,7 +9,6 @@ import configparser
 import os
 import shutil
 import psutil
-import sys
 
 # Fonction pour vérifier et tuer l'instance existante
 def kill_existing_instance():
@@ -31,7 +31,7 @@ def kill_existing_instance():
 
 # Initialisation des variables depuis le fichier de configuration
 def init():
-    global filePath, fileTab, fileCol1, fileCol2, shortcut
+    global config, filePath, fileTab, fileCol1, fileCol2, shortcut, autokill
     config = configparser.ConfigParser()
     config.read('config.ini')
 
@@ -40,6 +40,7 @@ def init():
     fileCol1 = config['FILE']['COLUMN1']
     fileCol2 = config['FILE']['COLUMN2']
     shortcut = config['KEYBOARD']['SHORTCUT']
+    autokill = config['PROCESS']['AUTOKILL']
 
 # Vérification et copie du fichier si nécessaire
 def check_and_copy_file():
@@ -79,14 +80,18 @@ def load_data(filepath):
     
     return df[[fileCol1, fileCol2]]
 
+# Fonction pour retourner les entrées correspondantes à l'input en fonction de l'encodage et de la casse
+def filterd_data(input_str):
+    nfkd_form = unicodedata.normalize('NFKD', input_str)
+    return ''.join([c for c in nfkd_form if not unicodedata.combining(c)]).lower()
 
 # Fonction pour afficher la fenêtre de saisie et filtrer les propositions
 def open_window(data):
     def on_keypress(event):
         if event.keysym not in ["Up", "Down", "Return"]:
             entry.focus_set()  # Focus sur l'entrée si d'autres touches sont pressées
-            typed_word = entry.get().lower()
-            filtered_words = data[data[fileCol1].str.lower().str.contains(typed_word)]
+            typed_word = filterd_data(entry.get())  # Normalisation complète (accents et minuscules)
+            filtered_words = data[data[fileCol1].apply(filterd_data).str.contains(typed_word)]  # Filtrer les résultat sur l'entrée utilisateur
             update_listbox(filtered_words)
 
     def update_listbox(filtered_words):
@@ -107,8 +112,16 @@ def open_window(data):
         if selection:
             selected_equivalent = selection.split('(')[-1].strip(')')
             pyperclip.copy(selected_equivalent)
-            window.destroy()
+            if autokill == '1':
+                window.destroy()
             keyboard.press_and_release('ctrl+v')
+            
+    def on_autokill_check():
+        global autokill
+        autokill = str(var1.get())
+        config['PROCESS']['AUTOKILL'] = autokill
+        with open('config.ini', 'w') as configfile:
+            config.write(configfile)
 
     window = tk.Tk()
     window.title("Recherche de mot")
@@ -116,19 +129,29 @@ def open_window(data):
     window.lift()
     window.attributes('-topmost', True)
     window.after(50, lambda: window.focus_force())
+    window.after(100, lambda: entry.focus())
 
-    # Champ de saisie avec autofocus
-    entry = tk.Entry(window)
-    entry.pack(pady=10)
+    # Zone d'en-tête
+    top_frame = tk.Frame(window)
+    top_frame.pack(fill=tk.X, pady=10)
+
+    # Zone de texte
+    entry = tk.Entry(top_frame)
+    entry.pack(side=tk.LEFT, padx=10, expand=True)
     entry.bind('<KeyRelease>', on_keypress)
     entry.bind('<Down>', lambda e: listbox.focus_set())  # Si flèche bas, focus sur listbox
     entry.bind('<Return>', on_entry_return)
-    window.after(100, lambda: entry.focus())
+
+    # CheckBox pour autokill
+    var1 = tk.IntVar(value=autokill)
+    c1 = tk.Checkbutton(top_frame, text='Auto quit', variable=var1, onvalue=1, offvalue=0, command=on_autokill_check)
+    c1.pack(side=tk.RIGHT, padx=10)
 
     # Liste de propositions
     listbox = Listbox(window)
     listbox.pack(fill=tk.BOTH, expand=True)
-    listbox.bind('<Return>', on_select)
+    listbox.bind('<Return>', on_select)     # Entrée
+    listbox.bind('<Double-1>', on_select)  # Double clic
 
     window.mainloop()
 

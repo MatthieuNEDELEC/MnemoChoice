@@ -12,7 +12,7 @@ pip install pandas tk psutil keyboard configparser pyperclip openpyxl
 
 ## Usage
 
-Edit the config.ini file according to your needs pecifying : 
+Edit the config.ini file according to your needs specifying : 
 ```bash
 [FILE]
 PATH = path to your file over network or locally
@@ -22,6 +22,9 @@ COLUMN2 = column name for words shortcut
 
 [KEYBOARD]
 SHORTCUT = shortcut to use to launch the utility
+
+[PROCESS]
+autokill = 0 to keep window open after selection or 1 to close automatically
 ```
 
 Launch the executable (currently only Windows is supported due to killing process concerns)
