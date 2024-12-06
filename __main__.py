@@ -162,13 +162,20 @@ def open_window(data):
         config['PROCESS']['AUTOKILL'] = autokill
         with open('config.ini', 'w') as configfile:
             config.write(configfile)
-
+    
+    # Gestion de l'opacité d ela fenêtre en fonction du focus
+    def opacity_on(event):
+        window.attributes('-alpha', float(opacity))
+    def opacity_off(event):
+        window.attributes('-alpha', 1.0)
+        
     window = tk.Tk()
-    window.attributes('-alpha', float(opacity))
     window.title("MnémoChoice")
     window.geometry("400x300")
     window.lift()
     window.attributes('-topmost', True)
+    window.bind('<FocusOut>', opacity_on)
+    window.bind('<FocusIn>', opacity_off)
     window.after(50, lambda: window.focus_force())
     window.after(100, lambda: entry.focus())
 
