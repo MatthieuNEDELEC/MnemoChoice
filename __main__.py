@@ -1,14 +1,19 @@
+import time
 import pandas as pd
 import openpyxl
 import unicodedata
 import tkinter as tk
 from tkinter import Listbox, messagebox
-import keyboard
+from pynput.keyboard import Controller, Key
 import pyperclip
+import keyboard
 import configparser
 import os
 import shutil
 import psutil
+import threading
+
+pynput_keyboard = Controller()
 
 # Fonction pour vérifier et tuer l'instance existante
 def kill_existing_instance():
@@ -46,14 +51,25 @@ def init():
 # Vérification et copie du fichier si nécessaire
 def check_and_copy_file():
     local_filename = './mnemo.xlsx'
-    
-    if os.path.exists(filePath):
-        if not os.path.exists(local_filename) or os.path.getmtime(filePath) > os.path.getmtime(local_filename):
-            shutil.copy2(filePath, local_filename)
-    elif not os.path.exists(local_filename):
-        messagebox.showerror("Erreur", "Fichier de données inaccessible.")
-        raise FileNotFoundError("Fichier de données non trouvé.")
-    
+    timeout = 3  # Limite de 3 secondes
+
+    def copy_file():
+        if os.path.exists(filePath):
+            if not os.path.exists(local_filename) or os.path.getmtime(filePath) > os.path.getmtime(local_filename):
+                shutil.copy2(filePath, local_filename)
+        elif not os.path.exists(local_filename):
+            messagebox.showerror("Erreur", "Fichier de données inaccessible.")
+            raise FileNotFoundError("Fichier de données non trouvé.")
+
+    thread = threading.Thread(target=copy_file)
+    thread.start()
+    thread.join(timeout)
+
+    if thread.is_alive():
+        # Si le thread n'a pas terminé dans le délai imparti
+        messagebox.showerror("Erreur", "L'opération a dépassé le temps limite.")
+        raise TimeoutError("L'opération de copie a pris trop de temps.")
+
     return local_filename
 
 # Charger les données depuis le fichier Excel avec les paramètres du fichier de config
@@ -86,16 +102,31 @@ def filterd_data(input_str):
     nfkd_form = unicodedata.normalize('NFKD', input_str)
     return ''.join([c for c in nfkd_form if not unicodedata.combining(c)]).lower()
 
+def type_text(text):
+    """Type text character by character, handling uppercase letters."""
+    for char in text:
+        if char.isupper():
+            # Press Shift, then the letter
+            pynput_keyboard.press(Key.shift)
+            pynput_keyboard.press(char.lower())
+            pynput_keyboard.release(char.lower())
+            pynput_keyboard.release(Key.shift)
+        else:
+            # Just press the letter
+            pynput_keyboard.press(char)
+            pynput_keyboard.release(char)
+            
 # Fonction pour afficher la fenêtre de saisie et filtrer les propositions
 def open_window(data):
     def on_keypress(event):
         if event.keysym not in ["Up", "Down", "Return"]:
-            entry.focus_set()  # Focus sur l'entrée si d'autres touches sont pressées
-            typed_word = filterd_data(entry.get())  # Normalisation complète (accents et minuscules)
-            filtered_words = data[data[fileCol1].apply(filterd_data).str.contains(typed_word)]  # Filtrer les résultat sur l'entrée utilisateur
-            update_listbox(filtered_words)
+            update_listbox()
 
-    def update_listbox(filtered_words):
+    def update_listbox():
+        entry.focus_set()  # Focus sur l'entrée si d'autres touches sont pressées
+        typed_word = filterd_data(entry.get())  # Normalisation complète (accents et minuscules)
+        filtered_words = data[data[fileCol1].apply(filterd_data).str.contains(typed_word)]  # Filtrer les résultat sur l'entrée utilisateur
+        
         listbox.delete(0, tk.END)
         for index, row in filtered_words.iterrows():
             listbox.insert(tk.END, f"{row[fileCol1]} ({row[fileCol2]})")
@@ -112,10 +143,18 @@ def open_window(data):
         selection = listbox.get(tk.ACTIVE)
         if selection:
             selected_equivalent = selection.split('(')[-1].strip(')')
-            pyperclip.copy(selected_equivalent)
             if autokill == '1':
                 window.destroy()
-            keyboard.press_and_release('ctrl+v')
+            keyboard.press_and_release('alt+tab')
+            time.sleep(0.2) # delai pour prendre en compte le focus de la VM
+            type_text(selected_equivalent)
+            
+    def on_copy(event=None):
+        selection = listbox.get(tk.ACTIVE)
+        if selection:
+            selected_equivalent = selection.split('(')[-1].strip(')')
+            pyperclip.copy(selected_equivalent)
+            keyboard.press_and_release('alt+tab')
             
     def on_autokill_check():
         global autokill
@@ -126,7 +165,7 @@ def open_window(data):
 
     window = tk.Tk()
     window.attributes('-alpha', float(opacity))
-    window.title("Recherche de mot")
+    window.title("MnémoChoice")
     window.geometry("400x300")
     window.lift()
     window.attributes('-topmost', True)
@@ -154,6 +193,11 @@ def open_window(data):
     listbox.pack(fill=tk.BOTH, expand=True)
     listbox.bind('<Return>', on_select)     # Entrée
     listbox.bind('<Double-1>', on_select)  # Double clic
+    
+    button = tk.Button(window, width=3, height=1, text="📄", command=on_copy)
+    button.place(relx=0.9, rely=0.9, anchor=tk.CENTER)  # Bouton flottant
+    
+    update_listbox()
 
     window.mainloop()
 
