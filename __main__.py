@@ -5,221 +5,231 @@ import unicodedata
 import tkinter as tk
 from tkinter import Listbox, messagebox
 from pynput.keyboard import Controller, Key
-import pyperclip
 import keyboard
+import pyperclip
 import configparser
 import os
 import shutil
 import psutil
 import threading
+from typing import Optional
 
-pynput_keyboard = Controller()
+class MnemoChoiceApp:
+    """
+    A Tkinter-based application for interactive data entry with filtering capabilities
+    and automatic typing support using keyboard emulation.
+    """
+    def __init__(self, config_file: str = "config.ini"):
+        self.pynput_keyboard = Controller()
+        self.window: Optional[tk.Tk] = None
+        self.entry: Optional[tk.Entry]
+        self.last_geometry: Optional[str] = None  # Save window geometry before hiding
+        self.config_file = config_file
+        self.config = configparser.ConfigParser()
+        self.file_path: str = ""
+        self.file_tab: str = ""
+        self.file_col1: str = ""
+        self.file_col2: str = ""
+        self.shortcut: str = ""
+        self.autokill: str = ""
+        self.opacity: str = ""
+        self.data: Optional[pd.DataFrame] = None
 
-# Fonction pour vérifier et tuer l'instance existante
-def kill_existing_instance():
-    current_process = psutil.Process()
-    target_name = "MnemoChoice"  # Substring to search in process names
+    def kill_existing_instance(self):
+        """Kill any existing process instances of the application."""
+        current_process = psutil.Process()
+        target_name = "MnemoChoice"
 
-    for process in psutil.process_iter(['pid', 'name', 'cmdline']):
-        if process.info['pid'] != current_process.pid:
-            process_name = process.info['name'] or ""
-            # Check if the target name appears in the process name
-            if target_name in process_name:
-                try:
-                    process.terminate()
-                    process.wait(timeout=3)  # Wait for termination, with a 3-second timeout
-                except psutil.NoSuchProcess:
-                    pass  # Ignore if the process has already exited
-                except psutil.AccessDenied:
-                    print(f"Access denied when trying to terminate process {process.info['pid']}")
+        for process in psutil.process_iter(['pid', 'name', 'cmdline']):
+            if process.info['pid'] != current_process.pid:
+                process_name = process.info['name'] or ""
+                if target_name in process_name:
+                    try:
+                        process.terminate()
+                        process.wait(timeout=3)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
 
+    def init_config(self):
+        """Initialize variables from the configuration file."""
+        self.config.read(self.config_file)
+        try:
+            self.file_path = self.config['FILE']['PATH']
+            self.file_tab = self.config['FILE']['TAB']
+            self.file_col1 = self.config['FILE']['COLUMN1']
+            self.file_col2 = self.config['FILE']['COLUMN2']
+            self.shortcut = self.config['KEYBOARD']['SHORTCUT']
+            self.autokill = self.config['PROCESS']['AUTOKILL']
+            self.opacity = self.config['UI']['OPACITY']
+        except KeyError as e:
+            raise ValueError(f"Missing configuration key: {e}")
 
-# Initialisation des variables depuis le fichier de configuration
-def init():
-    global config, filePath, fileTab, fileCol1, fileCol2, shortcut, autokill, opacity
-    config = configparser.ConfigParser()
-    config.read('config.ini')
+    def check_and_copy_file(self) -> str:
+        """
+        Check if the source file exists and copy it locally if needed.
+        Returns the path to the local copy.
+        """
+        local_filename = './mnemo.xlsx'
+        timeout = 5
 
-    filePath = config['FILE']['PATH']
-    fileTab = config['FILE']['TAB']
-    fileCol1 = config['FILE']['COLUMN1']
-    fileCol2 = config['FILE']['COLUMN2']
-    shortcut = config['KEYBOARD']['SHORTCUT']
-    autokill = config['PROCESS']['AUTOKILL']
-    opacity = config['UI']['OPACITY']
+        def copy_file():
+            if os.path.exists(self.file_path):
+                if not os.path.exists(local_filename) or os.path.getmtime(self.file_path) > os.path.getmtime(local_filename):
+                    shutil.copy2(self.file_path, local_filename)
+            elif not os.path.exists(local_filename):
+                messagebox.showerror("Error", "Data file is inaccessible.")
+                raise FileNotFoundError("Data file not found.")
 
-# Vérification et copie du fichier si nécessaire
-def check_and_copy_file():
-    local_filename = './mnemo.xlsx'
-    timeout = 3  # Limite de 3 secondes
+        thread = threading.Thread(target=copy_file)
+        thread.start()
+        thread.join(timeout)
 
-    def copy_file():
-        if os.path.exists(filePath):
-            if not os.path.exists(local_filename) or os.path.getmtime(filePath) > os.path.getmtime(local_filename):
-                shutil.copy2(filePath, local_filename)
-        elif not os.path.exists(local_filename):
-            messagebox.showerror("Erreur", "Fichier de données inaccessible.")
-            raise FileNotFoundError("Fichier de données non trouvé.")
+        if thread.is_alive():
+            messagebox.showerror("Error", "Operation timed out.")
+            raise TimeoutError("File copy operation exceeded the time limit.")
 
-    thread = threading.Thread(target=copy_file)
-    thread.start()
-    thread.join(timeout)
+        return local_filename
 
-    if thread.is_alive():
-        # Si le thread n'a pas terminé dans le délai imparti
-        messagebox.showerror("Erreur", "L'opération a dépassé le temps limite.")
-        raise TimeoutError("L'opération de copie a pris trop de temps.")
+    def load_data(self, filepath: str) -> pd.DataFrame:
+        """
+        Load data from the specified Excel file and sheet.
+        Filters the data to only include the relevant columns based on the configuration.
+        """
+        df = pd.read_excel(filepath, sheet_name=self.file_tab, header=None)
 
-    return local_filename
+        header_row = None
+        for i, row in df.iterrows():
+            if self.file_col1 in row.values and self.file_col2 in row.values:
+                header_row = i
+                break
 
-# Charger les données depuis le fichier Excel avec les paramètres du fichier de config
-def load_data(filepath):
-    # Load the entire sheet without assuming header location
-    df = pd.read_excel(filepath, sheet_name=fileTab, header=None)
+        if header_row is None:
+            raise ValueError(f"Columns '{self.file_col1}' and '{self.file_col2}' not found in the file.")
 
-    # Find the row with the specified headers
-    header_row = None
-    for i, row in df.iterrows():
-        if fileCol1 in row.values and fileCol2 in row.values:
-            header_row = i
-            break
+        df = pd.read_excel(filepath, sheet_name=self.file_tab, header=header_row)
 
-    # If header row not found, raise an error
-    if header_row is None:
-        raise ValueError(f"Columns '{fileCol1}' and '{fileCol2}' not found in the file.")
+        if self.file_col1 not in df.columns or self.file_col2 not in df.columns:
+            raise ValueError(f"Columns '{self.file_col1}' and '{self.file_col2}' not found in the data.")
 
-    # Load data starting from the row below the headers
-    df = pd.read_excel(filepath, sheet_name=fileTab, header=header_row)
+        return df[[self.file_col1, self.file_col2]]
 
-    # Filter to keep only relevant columns
-    if fileCol1 not in df.columns or fileCol2 not in df.columns:
-        raise ValueError(f"Columns '{fileCol1}' and '{fileCol2}' not found in data.")
-    
-    return df[[fileCol1, fileCol2]]
+    @staticmethod
+    def normalize_text(input_str: str) -> str:
+        """
+        Normalize text by removing accents and converting to lowercase.
+        """
+        nfkd_form = unicodedata.normalize('NFKD', input_str)
+        return ''.join([c for c in nfkd_form if not unicodedata.combining(c)]).lower()
 
-# Fonction pour retourner les entrées correspondantes à l'input en fonction de l'encodage et de la casse
-def filterd_data(input_str):
-    nfkd_form = unicodedata.normalize('NFKD', input_str)
-    return ''.join([c for c in nfkd_form if not unicodedata.combining(c)]).lower()
+    def type_text(self, text: str):
+        """Type text character by character, handling uppercase letters."""
+        for char in text:
+            if char.isupper():
+                self.pynput_keyboard.press(Key.shift)
+                self.pynput_keyboard.press(char.lower())
+                self.pynput_keyboard.release(char.lower())
+                self.pynput_keyboard.release(Key.shift)
+            else:
+                self.pynput_keyboard.press(char)
+                self.pynput_keyboard.release(char)
 
-def type_text(text):
-    """Type text character by character, handling uppercase letters."""
-    for char in text:
-        if char.isupper():
-            # Press Shift, then the letter
-            pynput_keyboard.press(Key.shift)
-            pynput_keyboard.press(char.lower())
-            pynput_keyboard.release(char.lower())
-            pynput_keyboard.release(Key.shift)
-        else:
-            # Just press the letter
-            pynput_keyboard.press(char)
-            pynput_keyboard.release(char)
-            
-# Fonction pour afficher la fenêtre de saisie et filtrer les propositions
-def open_window(data):
-    def on_keypress(event):
-        if event.keysym not in ["Up", "Down", "Return"]:
-            update_listbox()
+    def open_window(self):
+        """
+        Create and display the Tkinter-based UI for user input and suggestions filtering.
+        """
+        def update_listbox():
+            typed_word = self.normalize_text(self.entry.get())
+            filtered_words = self.data[self.data[self.file_col1].apply(self.normalize_text).str.contains(typed_word)]
 
-    def update_listbox():
-        entry.focus_set()  # Focus sur l'entrée si d'autres touches sont pressées
-        typed_word = filterd_data(entry.get())  # Normalisation complète (accents et minuscules)
-        filtered_words = data[data[fileCol1].apply(filterd_data).str.contains(typed_word)]  # Filtrer les résultat sur l'entrée utilisateur
+            listbox.delete(0, tk.END)
+            for _, row in filtered_words.iterrows():
+                listbox.insert(tk.END, f"{row[self.file_col1]} ({row[self.file_col2]})")
+            if listbox.size() > 0:
+                listbox.select_set(0)
+
+        def on_select():
+            selection = listbox.get(tk.ACTIVE)
+            if selection:
+                selected_equivalent = selection.split('(')[-1].strip(')')
+                keyboard.press_and_release('alt+tab')
+                if self.autokill == '1':
+                    self.last_geometry = self.window.geometry()
+                    self.window.withdraw()
+                time.sleep(0.2)
+                self.type_text(selected_equivalent)
+                self.entry.delete(0, 'end')
+                update_listbox()
         
-        listbox.delete(0, tk.END)
-        for index, row in filtered_words.iterrows():
-            listbox.insert(tk.END, f"{row[fileCol1]} ({row[fileCol2]})")
-        if listbox.size() > 0:
-            listbox.select_set(0)  # Sélectionne le premier élément
-            
-    def on_entry_return(event):
-        # Check if there's exactly one item in the listbox when Enter is pressed in the entry
-        if listbox.size() == 1:
-            listbox.select_set(0)
-            on_select()  # Automatically select the single item
+        def on_copy(event=None):
+            selection = listbox.get(tk.ACTIVE)
+            if selection:
+                selected_equivalent = selection.split('(')[-1].strip(')')
+                pyperclip.copy(selected_equivalent)
+                keyboard.press_and_release('alt+tab')
 
-    def on_select(event=None):
-        selection = listbox.get(tk.ACTIVE)
-        if selection:
-            selected_equivalent = selection.split('(')[-1].strip(')')
-            if autokill == '1':
-                window.destroy()
-            keyboard.press_and_release('alt+tab')
-            time.sleep(0.2) # delai pour prendre en compte le focus de la VM
-            type_text(selected_equivalent)
-            
-    def on_copy(event=None):
-        selection = listbox.get(tk.ACTIVE)
-        if selection:
-            selected_equivalent = selection.split('(')[-1].strip(')')
-            pyperclip.copy(selected_equivalent)
-            keyboard.press_and_release('alt+tab')
-            
-    def on_autokill_check():
-        global autokill
-        autokill = str(var1.get())
-        config['PROCESS']['AUTOKILL'] = autokill
-        with open('config.ini', 'w') as configfile:
-            config.write(configfile)
+        def on_autokill_check():
+            self.autokill = str(atk.get())
+            self.config['PROCESS']['AUTOKILL'] = self.autokill
+            with open('config.ini', 'w') as configfile:
+                self.config.write(configfile)
+
+        def on_focusIn(event):
+            self.window.attributes('-alpha', 1.0)
+
+        def on_focusOut(event):
+            self.window.attributes('-alpha', float(self.opacity))
+
+        self.window = tk.Tk()
+        self.window.title("MnemoChoice")
+        self.window.geometry("400x300")
+        self.window.attributes('-topmost', True)
+        self.window.bind('<FocusOut>', on_focusOut)
+        self.window.bind('<FocusIn>', on_focusIn)
+        self.window.bind('<Down>', lambda e: listbox.focus_set())
+        self.window.bind('<Return>', lambda _: on_select())
+        self.window.withdraw()
+
+        top_frame = tk.Frame(self.window)
+        top_frame.pack(fill=tk.X, pady=10)
+
+        self.entry = tk.Entry(top_frame)
+        self.entry.pack(side=tk.LEFT, padx=10, expand=True)
+
+        atk = tk.IntVar(value=self.autokill)
+        chk1 = tk.Checkbutton(top_frame, text='Auto quit', variable=atk, onvalue=1, offvalue=0, command=on_autokill_check)
+        chk1.pack(side=tk.RIGHT, padx=10)
+
+        listbox = Listbox(self.window)
+        listbox.pack(fill=tk.BOTH, expand=True)
+        listbox.bind('<Double-1>', lambda _: on_select())
+        self.entry.bind('<KeyRelease>', lambda _: update_listbox())
+
+        button = tk.Button(self.window, width=3, height=1, text="📄", command=on_copy)
+        button.place(relx=0.9, rely=0.9, anchor=tk.CENTER)
     
-    # Gestion de l'opacité d ela fenêtre en fonction du focus
-    def opacity_on(event):
-        window.attributes('-alpha', float(opacity))
-    def opacity_off(event):
-        window.attributes('-alpha', 1.0)
-        
-    window = tk.Tk()
-    window.title("MnémoChoice")
-    window.geometry("400x300")
-    window.lift()
-    window.attributes('-topmost', True)
-    window.bind('<FocusOut>', opacity_on)
-    window.bind('<FocusIn>', opacity_off)
-    window.after(50, lambda: window.focus_force())
-    window.after(100, lambda: entry.focus())
+        update_listbox()
+        self.window.mainloop()
 
-    # Zone d'en-tête
-    top_frame = tk.Frame(window)
-    top_frame.pack(fill=tk.X, pady=10)
+    def toggle_window(self):
+        """Toggle visibility of the application window."""
+        if self.last_geometry:
+            self.window.geometry(self.last_geometry)
+        self.window.deiconify()
+        self.entry.focus_set()
 
-    # Zone de texte
-    entry = tk.Entry(top_frame)
-    entry.pack(side=tk.LEFT, padx=10, expand=True)
-    entry.bind('<KeyRelease>', on_keypress)
-    entry.bind('<Down>', lambda e: listbox.focus_set())  # Si flèche bas, focus sur listbox
-    entry.bind('<Return>', on_entry_return)
+    def run(self):
+        """Main entry point for the application."""
+        self.kill_existing_instance()
+        self.init_config()
+        keyboard.add_hotkey(self.shortcut, self.toggle_window)
+        filepath = self.check_and_copy_file()
+        self.data = self.load_data(filepath)
+        self.open_window()
 
-    # CheckBox pour autokill
-    var1 = tk.IntVar(value=autokill)
-    c1 = tk.Checkbutton(top_frame, text='Auto quit', variable=var1, onvalue=1, offvalue=0, command=on_autokill_check)
-    c1.pack(side=tk.RIGHT, padx=10)
 
-    # Liste de propositions
-    listbox = Listbox(window)
-    listbox.pack(fill=tk.BOTH, expand=True)
-    listbox.bind('<Return>', on_select)     # Entrée
-    listbox.bind('<Double-1>', on_select)  # Double clic
-    
-    button = tk.Button(window, width=3, height=1, text="📄", command=on_copy)
-    button.place(relx=0.9, rely=0.9, anchor=tk.CENTER)  # Bouton flottant
-    
-    update_listbox()
+def main():
+    app = MnemoChoiceApp()
+    app.run()
 
-    window.mainloop()
-
-# Détecter la combinaison de touches
-def on_trigger():
-    try:
-        filepath = check_and_copy_file()
-        data = load_data(filepath)
-        open_window(data)
-    except Exception as e:
-        messagebox.showerror("Erreur lors de l'activation", e)
-
-# Démarrer le script en tuant l'instance existante, puis lancer les étapes principales
 if __name__ == "__main__":
-    kill_existing_instance()
-    init()
-    keyboard.add_hotkey(shortcut, on_trigger)
-    keyboard.wait()
+    main()

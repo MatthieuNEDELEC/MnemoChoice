@@ -1,13 +1,13 @@
 # MnémoChoice
 
-MnémoChoice is a Python tool that streamlines word selection by providing quick, standardized shortcuts for commonly used terms in programming. Designed to enhance productivity, it helps developers instantly retrieve and insert predefined word choices with just a few keystrokes.
+MnémoChoice is a Python written tool that streamlines word selection by providing quick, standardized shortcuts for commonly used terms in programming. Designed to enhance productivity and standardization, it helps developers instantly retrieve and insert predefined word choices with just a few keystrokes.
 
 ## Installation
 
 Use the package manager [pip](https://pip.pypa.io/en/stable/) to install the packages.
 
 ```bash
-pip install pandas tk psutil keyboard configparser pyperclip openpyxl
+pip install pandas tk psutil shutil keyboard pynput configparser pyperclip openpyxl unicodedata
 ```
 
 ## Usage
@@ -27,17 +27,15 @@ SHORTCUT = shortcut to use to launch the utility
 autokill = 0 to keep window open after selection or 1 to close automatically
 
 [UI]
-opacity = 0 to 1 → 0 the most transparent and 1 the more opaque 
+opacity = 0 to 1 → 0 completely transparent and 1 completely opaque
 ```
 
-Launch the executable (currently only Windows is supported due to killing process concerns)
+Launch the executable
 
 ## Contributing
 
 Pull requests are welcome. For major changes, please open an issue first
 to discuss what you would like to change.
-
-Please make sure to update tests as appropriate.
 
 ## License
 
